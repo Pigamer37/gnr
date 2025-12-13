@@ -170,7 +170,8 @@ classdef EKFLandmarks < handle
 
             % Step 2: Sequential update for each matched observation
             for i = 1:length(matched_ids)
-                landmark_id = matched_ids(i);
+                %landmark_id = matched_ids(i);
+                landmark_id = find(obj.landmarks(:,3)==matched_ids(i));
                 landmark_pos = obj.landmarks(landmark_id, :);
 
                 % Compute prediction for this landmark

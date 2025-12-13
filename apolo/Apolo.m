@@ -47,6 +47,7 @@ classdef Apolo < handle
             end
 
             obj.worldXML = readstruct(worldXMLFile, "FileType", "xml");
+            % Read this from file
             obj.robotName = char(robotName);
             obj.laserName = char(laserName);
             obj.updateState();
@@ -66,14 +67,14 @@ classdef Apolo < handle
                 start_pose (1,3) double
             end
 
-            apoloResetOdometry(obj.robotName, start_pose);
-
             if apoloPlaceMRobot(obj.robotName, [start_pose(1), start_pose(2), 0], start_pose(3)) ~= 1
                 error("Apolo:PlacementError", "Error placing %s at position [%.2f, %.2f, %.2f]", ...
                     obj.robotName, start_pose(1), start_pose(2), start_pose(3));
             end
 
             apoloUpdate();
+
+            apoloResetOdometry(obj.robotName, start_pose);
             obj.updateState();
         end
 
@@ -234,7 +235,7 @@ classdef Apolo < handle
                 beacons(i, :) = [str2double(coords(1)), str2double(coords(2)), ...
                                  obj.worldXML.World.LandMark(i).mark_idAttribute];
             end
-
+            
             % Sort by ID to ensure array index matches landmark ID
             beacons = sortrows(beacons, 3);
         end
