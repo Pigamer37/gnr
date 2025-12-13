@@ -7,6 +7,9 @@ trajectories = load('trayectorias.mat');
 traj = trajectories.trajDirect;
 start = traj(1,:);
 
+load('map/garden_lines.mat', 'map_lines');
+num_walls = size(map_lines, 1);
+
 %% Initialize Robot Interface
 robot = Apolo("MazeRunner.xml", "Dafne", "LMS100");
 
@@ -63,6 +66,9 @@ fprintf('  Dense trajectory:  %d points\n', size(traj, 1));
 fprintf('  Trajectory length: %.2f m\n', traj_length);
 fprintf('  Est. traversal:    %.1f s @ %.1f m/s avg\n\n', traj_time, avg_speed);
 
+% Start at first trajectory point
+pathPoint = 1;
+
 %% Beacon Positions
 beacons = robot.getBeaconPositions();
 if isempty(beacons)
@@ -100,7 +106,9 @@ x0 = x + [0.05; 0.05; 0.01];
 
 % Initialize EKF
 P = diag([0.1^2, 0.1^2, 0.01^2]);
-ekf = EKFLandmarks(x0, P, beacons, Q, R);
+% Create EKF instance
+chi2_threshold = 9.21;  % 99% confidence for 2 DOF
+ekf = EKFLines(x0, P, map_lines, Q, chi2_threshold);
 
 %% Variable storage
 true_trajectory = zeros(3, num_steps);
@@ -118,11 +126,11 @@ fprintf('  Total time:   %.1f s (%d steps)\n\n', simulation_time, num_steps);
 u_current = [0; 0];
 
 for k = 1:num_steps
+    %% Get Lidar scan
+    scan = robot.getLaserScan();
+
     %% Control Update
     if mod(k-1, control_rate) == 0
-        % Scan for possible obstacles
-        scan = robot.getLaserScan();
-
         % Compute control using remaining trajectory
         remaining_traj = traj(k:end, :);
         u_current = controller.compute(ekf.x, remaining_traj, scan);
@@ -139,13 +147,10 @@ for k = 1:num_steps
     [delta_d_hat, delta_beta_hat] = robot.getOdometry();
     ekf.predict(delta_d_hat, delta_beta_hat);
 
-    %% Sensor Measurements
-    [landmark_meas, measurementIDs] = robot.getLandmarkMeasurements();
-
     %% EKF Update
-    if ~isempty(landmark_meas)
-        ekf.update(landmark_meas, measurementIDs);
-    end
+    % Extract lines from scan using RANSAC
+    lines_observed = ransac_lines(scan, 0.015, 3);
+    ekf.update(lines_observed);
 
     %% Store Results
     estimated_trajectory(:, k) = ekf.x;
