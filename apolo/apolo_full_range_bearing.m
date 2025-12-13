@@ -1,14 +1,17 @@
 clear; close all; clc; rng(0);
 
 load('gardenMap.mat');
-map = binaryOccupancyMap(imrotate(garden(:,:,1), 180), "Resolution", 10);
-[~, start, goal, waypoints, traj] = maze_planner('gardenPoli.xml', garden, 0.75);
+%map = binaryOccupancyMap(imrotate(garden(:,:,1), 180), "Resolution", 10);
+trajectories = load('trayectorias.mat');
+
+traj = trajectories.trajDirect;
+start = traj(1,:);
 
 %% Initialize Robot Interface
-robot = Apolo("MazeRunner.xml", "Pioneer3ATSim", "LMS100");
+robot = Apolo("MazeRunner.xml", "Dafne", "LMS100");
 
 %% Vehicle and Simulation Parameters
-dt = 0.05;                       % Simulation time step [s]
+dt = 0.1;                       % Simulation time step [s]
 control_dt = 0.1;                % Control time step [s]
 control_rate = control_dt / dt;  % Control update every N steps
 
@@ -27,10 +30,6 @@ controller = NMPCCBFController(...
     'UseSlack', true, ...
     'SlackPenalty', 100);
 
-pause_time = 0;                  % For "realism" use dt [s]
-simulation_time = 40;            % Total simulation time [s]
-num_steps = round(simulation_time / dt);
-
 %% Interpolate Trajectory
 % Calculate trajectory length by calculating the euclidean distance
 % between original points
@@ -40,8 +39,11 @@ for i = 1:size(traj_sparse, 1)-1
 end
 
 % Estimate traversal time based on desired average speed
+pause_time = 0;                  % For "realism" use dt [s]
 avg_speed = 1.0;  % Desired average speed [m/s]
 traj_time = traj_length / avg_speed;
+simulation_time = traj_time;
+num_steps = round(simulation_time / dt);
 
 % Create dense time vector at EKF rate
 num_traj_points = round(traj_time / dt);
@@ -60,9 +62,6 @@ fprintf('  Sparse waypoints:  %d points\n', size(traj_sparse, 1));
 fprintf('  Dense trajectory:  %d points\n', size(traj, 1));
 fprintf('  Trajectory length: %.2f m\n', traj_length);
 fprintf('  Est. traversal:    %.1f s @ %.1f m/s avg\n\n', traj_time, avg_speed);
-
-% Start at first trajectory point
-pathPoint = 1;
 
 %% Beacon Positions
 beacons = robot.getBeaconPositions();
@@ -124,29 +123,9 @@ for k = 1:num_steps
         % Scan for possible obstacles
         scan = robot.getLaserScan();
 
-        % Check waypoint using current estimate
-        Ax = traj(pathPoint, 1) - ekf.x(1);
-        Ay = traj(pathPoint, 2) - ekf.x(2);
-        if norm([Ax, Ay]) <= 0.1  % In meters
-            if pathPoint == size(traj, 1)
-                % Reached final waypoint
-                u_current = [0; 0];
-                control_history(:, k) = u_current;
-                fprintf('Reached final waypoint at step %d (t=%.2fs)\n', k, k*dt);
-                break
-            end
-            pathPoint = pathPoint + 1;
-            fprintf('Switched to waypoint %d at step %d (t=%.2fs)\n', pathPoint, k, k*dt);
-        end
-
         % Compute control using remaining trajectory
-        remaining_traj = traj(pathPoint:end, :);
+        remaining_traj = traj(k:end, :);
         u_current = controller.compute(ekf.x, remaining_traj, scan);
-
-        if mod(k, floor(1/dt)) == 0
-            fprintf('t=%.1fs: pos=[%.2f, %.2f], waypoint %d/%d, u=[%.2f, %.2f]\n', ...
-                k*dt, ekf.x(1), ekf.x(2), pathPoint, size(traj,1), u_current(1), u_current(2));
-        end
     end
 
     %% Robot Movement
